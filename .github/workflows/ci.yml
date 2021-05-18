@@ -1,0 +1,60 @@
+---
+
+name: CI
+'on':
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "0 1 1 * *"
+
+defaults:
+  run:
+    working-directory: "terraform-mongodbatlas-demo"
+
+jobs:
+  linting:
+    name: Linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout codebase
+        uses: actions/checkout@v2
+        with:
+          path: "terraform-mongodbatlas-demo"
+
+      - name: Set up Python 3
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.x"
+
+      - name: Install OS test dependencies
+        run: sudo apt-get install -y shellcheck
+
+      - name: Install Python 3 test dependencies
+        run: pip3 install -r testing/requirements.txt
+
+      - name: Install project dependencies
+        run: |
+          ./go install controller
+        env:
+          PY_COLORS: '1'
+          ANSIBLE_FORCE_COLOR: '1'
+
+      - name: Run linting checks against bash scripts
+        run: |
+          set -e
+          shellcheck go
+          bashate go
+        env:
+          PY_COLORS: '1'
+
+      - name: Run linting checks against YAML and Ansible Playbooks
+        run: |
+          set -e
+          yamllint -s playbooks/
+          yamllint -s manifests/
+          ansible-lint playbooks/*.yml
+        env:
+          PY_COLORS: '1'
+          ANSIBLE_FORCE_COLOR: '1'

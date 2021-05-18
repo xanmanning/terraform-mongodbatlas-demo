@@ -1,0 +1,28 @@
+{
+	"name": "Debian",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"args": { "VARIANT": "buster" }
+	},
+
+	"settings": {
+		"terminal.integrated.profiles.linux": {
+			"bash (login)": {
+				"path": "/bin/bash",
+				"args": ["-l"]
+			}
+		}
+	},
+
+	"extensions": [
+		"hashicorp.terraform",
+		"ms-python.python",
+		"ms-azuretools.vscode-docker"
+	],
+
+	"containerEnv": {
+		"HOST_HOSTNAME": "${localEnv:HOSTNAME}"
+	},
+
+	"remoteUser": "vscode"
+}
