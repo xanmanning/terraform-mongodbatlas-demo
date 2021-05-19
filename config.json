@@ -1,1 +1,53 @@
-{}
+{
+    "demo": {
+        "mongoCluster": "animals-mongo",
+        "service_configuration" : [
+            {
+                "serviceName": "possums-data-store",
+                "mongoCluster": "animals-mongo",
+                "mongoDatabase": "marsupials-dev",
+                "mongoCollection": ["possums"]
+            },
+            {
+                "serviceName": "numbats-data-store",
+                "mongoCluster": "animals-mongo",
+                "mongoDatabase": "marsupials-dev",
+                "mongoCollection": ["numbats"]
+            },
+            {
+                "serviceName": "marsupials-data-store",
+                "mongoCluster": "animals-mongo",
+                "mongoDatabase": "marsupials-prod",
+                "mongoCollection": ["numbats", "possums"]
+            }
+        ]
+    },
+    "dev": {
+        "mongoCluster": "animals-mongo-dev",
+        "service_configuration" : [
+            {
+                "serviceName": "possums-data-store",
+                "mongoCluster": "animals-mongo-dev",
+                "mongoDatabase": "marsupials-dev",
+                "mongoCollection": ["possums"]
+            },
+            {
+                "serviceName": "numbats-data-store",
+                "mongoCluster": "animals-mongo-dev",
+                "mongoDatabase": "marsupials-dev",
+                "mongoCollection": ["numbats"]
+            }
+        ]
+    },
+    "prod": {
+        "mongoCluster": "animals-mongo-prod",
+        "service_configuration" : [
+            {
+                "serviceName": "marsupials-data-store",
+                "mongoCluster": "animals-mongo-prod",
+                "mongoDatabase": "marsupials-prod",
+                "mongoCollection": ["numbats", "possums"]
+            }
+        ]
+    }
+}

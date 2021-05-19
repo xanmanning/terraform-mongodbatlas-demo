@@ -1,2 +1,14 @@
 bin/
 venv/
+
+# Terraform state
+.terraform
+*.lock.info
+*.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.tfplan
+*outputs.json
+
+# Python
+*.pyc

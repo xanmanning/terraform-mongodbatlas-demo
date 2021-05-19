@@ -14,8 +14,8 @@ defaults:
     working-directory: "terraform-mongodbatlas-demo"
 
 jobs:
-  linting:
-    name: Linting
+  checks:
+    name: Code checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout codebase
@@ -31,30 +31,81 @@ jobs:
       - name: Install OS test dependencies
         run: sudo apt-get install -y shellcheck
 
-      - name: Install Python 3 test dependencies
-        run: pip3 install -r testing/requirements.txt
+      - name: Check ./go runs
+        run: |
+          ./go
+        env:
+          PY_COLORS: '1'
 
       - name: Install project dependencies
         run: |
-          ./go install controller
-        env:
-          PY_COLORS: '1'
-          ANSIBLE_FORCE_COLOR: '1'
-
-      - name: Run linting checks against bash scripts
-        run: |
-          set -e
-          shellcheck go
-          bashate go
+          ./go build controller
         env:
           PY_COLORS: '1'
 
-      - name: Run linting checks against YAML and Ansible Playbooks
+      - name: Run environment checks against the controller
         run: |
-          set -e
-          yamllint -s playbooks/
-          yamllint -s manifests/
-          ansible-lint playbooks/*.yml
+          ./go test controller
         env:
           PY_COLORS: '1'
-          ANSIBLE_FORCE_COLOR: '1'
+
+      - name: Run checks against bash scripts
+        run: |
+          ./go test go
+        env:
+          PY_COLORS: '1'
+
+      - name: Run checks against JSON config files
+        run: |
+          ./go test config
+        env:
+          PY_COLORS: '1'
+
+      - name: Run check to ensure we can connect to MongoDB Atlas
+        run: |
+          ./go test atlas_login
+        env:
+          MONGODB_ATLAS_PUBLIC_KEY: ${{ secrets.MONGODB_ATLAS_PUBLIC_KEY }}
+          MONGODB_ATLAS_PRIVATE_KEY: ${{ secrets.MONGODB_ATLAS_PRIVATE_KEY }}
+          MONGODB_ATLAS_PROJECT_ID: ${{ secrets.MONGODB_ATLAS_PROJECT_ID }}
+
+      - name: Run validity checks against Terraform
+        run: |
+          ./go test terraform_validity
+        env:
+          PY_COLORS: '1'
+
+      - name: Run style checks against Terraform
+        run: |
+          ./go test terraform_style
+        env:
+          PY_COLORS: '1'
+
+  execution:
+    name: Terraform execution checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout codebase
+        uses: actions/checkout@v2
+        with:
+          path: "terraform-mongodbatlas-demo"
+
+      - name: Set up Python 3
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.x"
+
+      - name: Install project dependencies
+        run: |
+          ./go build controller
+        env:
+          PY_COLORS: '1'
+
+      - name: Run end-to-end test with idempotence check
+        run: |
+          ./go test idempotence
+        env:
+          PY_COLORS: '1'
+          MONGODB_ATLAS_PUBLIC_KEY: ${{ secrets.MONGODB_ATLAS_PUBLIC_KEY }}
+          MONGODB_ATLAS_PRIVATE_KEY: ${{ secrets.MONGODB_ATLAS_PRIVATE_KEY }}
+          MONGODB_ATLAS_PROJECT_ID: ${{ secrets.MONGODB_ATLAS_PROJECT_ID }}

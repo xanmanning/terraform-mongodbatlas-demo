@@ -164,22 +164,181 @@ function check_go {
 function check_config {
     set +eu
 
-    for JSON_FILE in $(find . -iname '*.json' -type f) ; do
+    JSON_FILE_LIST="$(find . -iname '*.json' -type f)"
+
+    for JSON_FILE in ${JSON_FILE_LIST} ; do
         echo "Testing ${JSON_FILE}..."
-        cat "${JSON_FILE}" | jq -Mc '.' 1>/dev/null 2> >(tee -a .fail >&2) && \
+        jq --slurp . "${JSON_FILE}" -Mc 1>/dev/null 2> >(tee -a .fail >&2) && \
             echo "OK"
         echo ""
     done
 
-    if [ "$(<.fail)" != "" ] ; then
+    if [ -f .fail ] && [ "$(<.fail)" != "" ] ; then
         echo "JSON syntax checking failed"
         test -f .fail && rm -f .fail
         exit 1
+    else
+        echo "Tests pass"
     fi
 
     test -f .fail && rm -f .fail
 
     set -eu
+}
+
+#
+# check_terraform_validity
+#   Checks Terraform is valid
+#
+function check_terraform_validity {
+    TF_ENV_LIST="$(find terraform/env/ -maxdepth 1 \
+        -type d -not -path terraform/env/)"
+
+    for TF_ENV in ${TF_ENV_LIST} ; do
+        TF_ENV_NAME="${TF_ENV/terraform\/env\//}"
+        echo "Testing environment/module validity: ${TF_ENV_NAME}..."
+        terraform_validate "${TF_ENV_NAME}"
+    done
+}
+
+#
+# check_terraform_style
+#   Checks Terraform is valid
+#
+function check_terraform_style {
+    TF_ENV_LIST="$(find terraform/env/ -maxdepth 1 \
+        -type d -not -path terraform/env/)"
+
+    TF_MODULE_LIST="$(find terraform/modules/ -maxdepth 1 \
+        -type d -not -path terraform/modules/)"
+
+    for TF_ENV in ${TF_ENV_LIST} ; do
+        TF_ENV_NAME="${TF_ENV/terraform\/env\//}"
+        echo "Testing environment style: ${TF_ENV_NAME}..."
+        terraform_fmt "${TF_ENV}" | tee -a .fail
+    done
+
+    for TF_MOD in ${TF_MODULE_LIST} ; do
+        TF_MOD_NAME="${TF_MOD/terraform\/modules\//}"
+        echo "Testing modules style: ${TF_MOD_NAME}..."
+        terraform_fmt "${TF_MOD}" | tee -a .fail
+    done
+
+    FAILCOUNT="$(grep ".tf" .fail || true)"
+    test -f .fail && rm -f .fail
+
+    if [ "${FAILCOUNT}" != "" ] ; then
+        echo "Failed"
+        exit 1
+    else
+        echo "Passed"
+        exit 0
+    fi
+}
+
+#
+# check_idempotence
+#   Checks Terraform is idempotent
+#
+function check_idempotence {
+    TF_ENV_LIST="$(find terraform/env/ -maxdepth 1 \
+        -type d -not -path terraform/env/)"
+
+    E_SKIP_PROMPT="true"
+
+    for TF_ENV in ${TF_ENV_LIST} ; do
+        TF_ENV_NAME="${TF_ENV/terraform\/env\//}"
+        echo "Testing idempotence: ${TF_ENV_NAME}..."
+        terraform_get "${TF_ENV_NAME}"
+        terraform_init "${TF_ENV_NAME}"
+        terraform_plan "${TF_ENV_NAME}"
+        terraform_apply "${TF_ENV_NAME}"
+        terraform_plan "${TF_ENV_NAME}"
+        terraform_apply "${TF_ENV_NAME}" | tee -a .fail
+        terraform_destroy "${TF_ENV_NAME}"
+    done
+
+    FAILI="$(grep "Resources: 0 added, 0 changed, 0 destroyed" .fail || true)"
+    test -f .fail && rm -f .fail
+
+    if [ "${FAILI}" == "" ] ; then
+        echo "Failed"
+        exit 1
+    else
+        echo "Passed"
+        exit 0
+    fi
+}
+
+#
+# confirm_plan
+#   Asks the user if it is OK to continue with the plan
+#
+function confirm_plan {
+    [ "${E_SKIP_PROMPT}" == "true" ] && return
+
+    while true; do
+        echo ""
+        echo "WARNING: The above will incur cost."
+        read -r -p "Does the above plan look acceptable [y/n]: " ASK_ACCEPTABLE
+        case ${ASK_ACCEPTABLE} in
+            [Yy]*)
+                echo "Continue..."
+                break
+                ;;
+            [Nn]*)
+                echo "Aborting."
+                exit 0
+                ;;
+            *)
+                echo "Please answer yes or no."
+                ;;
+        esac
+    done
+}
+
+#
+# check_atlas_login
+#   Determines if we have access to the API
+#
+function check_atlas_login {
+    local VARTEST
+    local VTESTFAIL
+    local CURLTEST
+    local ATLAS_VARS=(
+        MONGODB_ATLAS_PUBLIC_KEY
+        MONGODB_ATLAS_PRIVATE_KEY
+        MONGODB_ATLAS_PROJECT_ID
+    )
+
+    VTESTFAIL="false"
+
+    for AV in "${ATLAS_VARS[@]}" ; do
+        VARTEST="${AV}"
+        if [ -z "${!VARTEST:-}" ] ; then
+            echo "${VARTEST} is not set!"
+            VTESTFAIL="true"
+        fi
+    done
+
+    if [ "${VTESTFAIL}" == "true" ] ; then
+        echo "Authentication failure."
+        exit 1
+    fi
+
+    CURLTEST="$(curl -s \
+        --user "${MONGODB_ATLAS_PUBLIC_KEY}:${MONGODB_ATLAS_PRIVATE_KEY}" \
+        --digest \
+        --header "Accept: application/json" \
+        --request GET \
+        --include \
+        https://cloud.mongodb.com/api/atlas/v1.0 | grep -E "HTTP.*200" || \
+        echo "Failed to connect to MongoDB Atlas API!")"
+
+    echo "${CURLTEST}"
+    if [[ "${CURLTEST}" =~ ^Failed ]] ; then
+        exit 1
+    fi
 }
 
 #
@@ -236,75 +395,232 @@ function download_terraform {
 }
 
 #
+# list_terraform_envs
+#   Generates a list of Environments
+#
+function list_terraform_envs {
+    local TF_ACTION
+    local TF_ENV_LIST
+    local TF_ENV_NAME
+
+    TF_ACTION="${1:-build}"
+    TF_ENV_LIST="$(find terraform/env/ -maxdepth 1 -type d)"
+
+    for TF_ENV in ${TF_ENV_LIST} ; do
+        TF_ENV_NAME="${TF_ENV/terraform\/env\//}"
+        if [ "${TF_ENV_NAME}" != "" ] ; then
+            echo -e "\t${TF_ENV_NAME}\t\t\t${TF_ACTION^}s" \
+                "(${TF_ENV_NAME^^}) MongoDB cluster"
+        fi
+    done
+}
+
+#
+# run_terraform_command
+#   Executes a terraform command
+#
+function run_terraform_command {
+    local TF_CMD
+    TF_CMD="${1:-false}"
+
+    if [ "${TF_CMD}" == "false" ] ; then
+        echo "Unknown Terraform command!"
+        exit 1
+    fi
+
+    if [[ "${TF_CMD}" =~ terraform*$ ]] ; then
+        echo "Unknown Terraform command: ${TF_CMD}"
+        exit 1
+    fi
+
+    echo "Running Terraform command:"
+    echo ""
+    echo -e "\t${TF_CMD}"
+    echo ""
+    echo ""
+
+    /usr/bin/env bash -c "${TF_CMD}"
+}
+
+#
+# terraform_get
+#   Gets Terraform modules
+#
+function terraform_get {
+    local TF_DIR
+    local TF_CMD
+    local TF_ENV
+    TF_ENV="${1:-unknown}"
+    TF_DIR="terraform/env/${TF_ENV}"
+    TF_CMD="terraform get"
+
+    if [ ! -d "${TF_DIR}" ] ; then
+        echo "${TF_ENV} environment not found!"
+        exit 1
+    fi
+
+    cd "${TF_DIR}"
+
+    run_terraform_command "${TF_CMD}"
+
+    cd - >/dev/null 2>&1
+}
+
+#
+# terraform_validate
+#   Validates Terraform modules
+#
+function terraform_validate {
+    local TF_DIR
+    local TF_CMD
+    local TF_ENV
+    TF_ENV="${1:-unknown}"
+    TF_DIR="terraform/env/${TF_ENV}"
+    TF_CMD="terraform validate"
+
+    if [ ! -d "${TF_DIR}" ] ; then
+        echo "${TF_ENV} environment not found!"
+        exit 1
+    fi
+
+    terraform_init "${TF_ENV}"
+
+    cd "${TF_DIR}"
+
+    run_terraform_command "${TF_CMD}"
+
+    cd - >/dev/null 2>&1
+}
+
+#
+# terraform_fmt
+#   Checks Terraform format
+#
+function terraform_fmt {
+    local TF_DIR
+    local TF_CMD
+    TF_DIR="${1:-unknown}"
+    TF_CMD="terraform fmt"
+
+    if [ ! -d "${TF_DIR}" ] ; then
+        echo "${TF_DIR} not found!"
+        exit 1
+    fi
+
+    cd "${TF_DIR}"
+
+    run_terraform_command "${TF_CMD}"
+
+    cd - >/dev/null 2>&1
+}
+
+#
+# terraform_init
+#   Initializes a Terraform project
+#
+function terraform_init {
+    local TF_DIR
+    local TF_CMD
+    local TF_ENV
+    TF_ENV="${1:-unknown}"
+    TF_DIR="terraform/env/${TF_ENV}"
+    TF_CMD="terraform init"
+
+    if [ ! -d "${TF_DIR}" ] ; then
+        echo "${TF_ENV} environment not found!"
+        exit 1
+    fi
+
+    cd "${TF_DIR}"
+
+    run_terraform_command "${TF_CMD}"
+
+    cd - >/dev/null 2>&1
+}
+
+#
 # terraform_plan
+#   Plans your terraform project
 #
 function terraform_plan {
-    local TFPLAN
-    TFPLAN="${E_ANSIBLE_PLAYBOOK} -vv playbooks/deploy_infra.yml --check"
+    local TF_DIR
+    local TF_CMD
+    local TF_ENV
 
-    echo ""
-    echo "Running Terraform Plan (via Ansible Playbook)"
-    echo -e "\t${TFPLAN}"
-    echo ""
+    TF_ENV="${1:-unknown}"
+    TF_DIR="terraform/env/${TF_ENV}"
+    TF_CMD="terraform plan -out project.tfplan -var 'env_id=${TF_ENV}'" \
+    TF_CMD+=" -var 'json_config=${TF_JSON_CONFIG}'"
+    TF_CMD+=" -var 'project_id=${MONGODB_ATLAS_PROJECT_ID}'"
 
-    bash -c "${TFPLAN}"
+    if [ ! -d "${TF_DIR}" ] ; then
+        echo "${TF_ENV} environment not found!"
+        exit 1
+    fi
 
-    while true; do
-        echo ""
-        echo "WARNING: The above will incur cost in Azure."
-        read -r -p "Does the above plan look acceptable [y/n]: " ASK_ACCEPTABLE
-        case ${ASK_ACCEPTABLE} in
-            [Yy]*)
-                echo "Continue..."
-                break
-                ;;
-            [Nn]*)
-                echo "Aborting."
-                exit 0
-                ;;
-            *)
-                echo "Please answer yes or no."
-                ;;
-        esac
-    done
+    cd "${TF_DIR}"
+
+    run_terraform_command "${TF_CMD}"
+
+    cd - >/dev/null 2>&1
 }
 
 #
 # terraform_apply
+#   Runs terraform apply against your project
 #
 function terraform_apply {
-    run_ansible_playbook "deploy_infra"
+    local TF_DIR
+    local TF_CMD
+    local TF_ENV
+
+    TF_ENV="${1:-unknown}"
+    TF_DIR="terraform/env/${TF_ENV}"
+    TF_CMD="terraform apply project.tfplan"
+
+    if [ ! -d "${TF_DIR}" ] ; then
+        echo "${TF_ENV} environment not found!"
+        exit 1
+    fi
+
+    cd "${TF_DIR}"
+
+    run_terraform_command "${TF_CMD}"
+
+    cd - >/dev/null 2>&1
 }
 
 #
 # terraform_destroy
+#   Destroys your terraform project
 #
 function terraform_destroy {
-    while true; do
-        echo ""
-        echo "WARNING: This will destroy all project resources."
-        read -r -p "Do you want to continue? [y/n]: " ASK_ACCEPTABLE
-        case ${ASK_ACCEPTABLE} in
-            [Yy]*)
-                echo "Continue..."
-                break
-                ;;
-            [Nn]*)
-                echo "Aborting."
-                exit 0
-                ;;
-            *)
-                echo "Please answer yes or no."
-                ;;
-        esac
-    done
+    local TF_DIR
+    local TF_CMD
+    local TF_ENV
+    local TF_APPROVE
 
-    PRC=1
-    while [ ${PRC} -gt 0 ] ; do
-        set +euo pipefail
-        run_ansible_playbook "destroy_infra"
-        PRC="${?}"
-    done
+    TF_APPROVE=""
+
+    [ "${E_SKIP_PROMPT}" == "true" ] && TF_APPROVE=" -auto-approve"
+
+    TF_ENV="${1:-unknown}"
+    TF_DIR="terraform/env/${TF_ENV}"
+    TF_CMD="terraform apply -destroy -var 'env_id=${TF_ENV}'" \
+    TF_CMD+=" -var 'json_config=${TF_JSON_CONFIG}'"
+    TF_CMD+=" -var 'project_id=${MONGODB_ATLAS_PROJECT_ID}'"
+    TF_CMD+="${TF_APPROVE}"
+
+    if [ ! -d "${TF_DIR}" ] ; then
+        echo "${TF_ENV} environment not found!"
+        exit 1
+    fi
+
+    cd "${TF_DIR}"
+
+    run_terraform_command "${TF_CMD}"
+
+    cd - >/dev/null 2>&1
 }
 
 #
@@ -324,6 +640,18 @@ function action_test_command {
         config)
             check_config
             ;;
+        atlas_login)
+            check_atlas_login
+            ;;
+        terraform_validity)
+            check_terraform_validity
+            ;;
+        terraform_style)
+            check_terraform_style
+            ;;
+        idempotence)
+            check_idempotence
+            ;;
         *)
             echo ""
             echo "Available options:"
@@ -331,6 +659,10 @@ function action_test_command {
             echo -e "\tgo                   Run tests against the ./go script"
             echo -e "\tcontroller           Check your local controller"
             echo -e "\tconfig               Run tests against JSON files"
+            echo -e "\tatlas_login          Check you can log in to Atlas"
+            echo -e "\tterraform_validity   Run validity checks"
+            echo -e "\tterraform_style      Run format checks"
+            echo -e "\tidempotence          Check that the code is idempotent"
             echo ""
             exit 1
             ;;
@@ -348,21 +680,21 @@ function action_build_command {
         controller)
             build_environment
             ;;
-        infra)
-            terraform_plan
-            terraform_apply
-            run_ansible_playbook "inventory_setup"
-            ;;
-        k3s_cluster)
-            run_ansible_playbook "deploy_k3s"
-            ;;
-        *)
+        false)
             echo ""
             echo "Available options:"
             echo ""
-            echo -e "\tcontroller             Build Terraform Controller"
+            echo -e "\tcontroller\t\tBuild the Terraform Controller"
+            list_terraform_envs "build"
             echo ""
             exit 1
+            ;;
+        *)
+            terraform_get "${OPTIONS}"
+            terraform_init "${OPTIONS}"
+            terraform_plan "${OPTIONS}"
+            confirm_plan
+            terraform_apply "${OPTIONS}"
             ;;
     esac
 }
@@ -374,23 +706,17 @@ function action_destroy_command {
     local OPTIONS
     OPTIONS="${1:-false}"
 
-    check_environment
-
     case "${OPTIONS}" in
-        infra)
-            terraform_destroy
-            ;;
-        k3s_cluster)
-            run_ansible_playbook "destroy_k3s"
-            ;;
-        *)
+        false)
             echo ""
             echo "Available options:"
             echo ""
-            echo -e "\tk3s_cluster            Destroy K3S cluster"
-            echo -e "\tinfra                  Destroy infrastructure in Azure"
+            list_terraform_envs "destroy"
             echo ""
             exit 1
+            ;;
+        *)
+            terraform_destroy "${OPTIONS}"
             ;;
     esac
 }
@@ -429,6 +755,14 @@ function action_cleanup_command {
             # shellcheck source=/dev/null
             test -d "${E_VENV}" && rm -rf "${E_VENV}"
             test -d "${E_BIN}" && rm -rf "${E_BIN}"
+            for TFTYPE in tfplan tfstate tfstate.backup lock.hcl ; do
+                find terraform/ -type f -name "*.${TFTYPE}" -delete
+            done
+            find terraform/ \
+                -maxdepth 3 \
+                -type d \
+                -name ".terraform" \
+                -exec rm -rf {} \;
             git reset HEAD --hard
             ;;
         *)
