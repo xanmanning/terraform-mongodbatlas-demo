@@ -61,14 +61,6 @@ jobs:
         env:
           PY_COLORS: '1'
 
-      - name: Run check to ensure we can connect to MongoDB Atlas
-        run: |
-          ./go test atlas_login
-        env:
-          MONGODB_ATLAS_PUBLIC_KEY: ${{ secrets.MONGODB_ATLAS_PUBLIC_KEY }}
-          MONGODB_ATLAS_PRIVATE_KEY: ${{ secrets.MONGODB_ATLAS_PRIVATE_KEY }}
-          MONGODB_ATLAS_PROJECT_ID: ${{ secrets.MONGODB_ATLAS_PROJECT_ID }}
-
       - name: Run validity checks against Terraform
         run: |
           ./go test terraform_validity
@@ -100,6 +92,14 @@ jobs:
           ./go build controller
         env:
           PY_COLORS: '1'
+
+      - name: Run check to ensure we can connect to MongoDB Atlas
+        run: |
+          ./go test atlas_login
+        env:
+          MONGODB_ATLAS_PUBLIC_KEY: ${{ secrets.MONGODB_ATLAS_PUBLIC_KEY }}
+          MONGODB_ATLAS_PRIVATE_KEY: ${{ secrets.MONGODB_ATLAS_PRIVATE_KEY }}
+          MONGODB_ATLAS_PROJECT_ID: ${{ secrets.MONGODB_ATLAS_PROJECT_ID }}
 
       - name: Run end-to-end test with idempotence check
         run: |

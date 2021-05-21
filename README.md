@@ -47,12 +47,21 @@ machines.
     to confirm that you are happy to build the infrastructure described in
     `terraform plan`.
  1. Once complete, the connections strings for each service will be placed into
-    JSON files in the [output/](/output) directory.
+    JSON files in the [output/](/output) directory. An example JSON file is
+    below:
+
+    ```json
+    {
+        "connection_strings": {
+            "marsupials-dev.numbats": "mongodb+srv://numbats-data-store:8Y5xxxxxznZjFxxx@animals-mongo.xdjfh.mongodb.net/marsupials-dev/numbats"
+        }
+    }
+    ```
 
 ### Destroying the MongoDB cluster
 
  1. Run `./go destroy demo`. Terraform will present you with the actions that
-    will be taken and prompt you for a response.
+    will be taken to destroy the infrastructure and prompt you for a response.
 
 ### Cleanup
 

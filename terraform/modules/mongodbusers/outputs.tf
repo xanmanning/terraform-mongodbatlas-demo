@@ -1,4 +1,1 @@
-output "password" {
-  value     = random_password.store_service_password
-  sensitive = true
-}
+# There are no outputs as these are written directly to a file.

@@ -10,6 +10,8 @@ terraform {
   }
 }
 
+# Build a cluster. For this we've hard coded to M2 in EU_WEST_1 for testing.
+# Future enhancement: config map for region, and size.
 resource "mongodbatlas_cluster" "cluster" {
   project_id = var.project_id
   name       = var.cluster_name

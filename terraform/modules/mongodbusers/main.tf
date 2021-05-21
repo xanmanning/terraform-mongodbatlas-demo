@@ -10,12 +10,16 @@ terraform {
   }
 }
 
+# Resource for creating a random password. We are creating x many passwords,
+# each y characters long.
 resource "random_password" "store_service_password" {
-  count            = length(var.json_config.service_configuration[*].mongoCollection)
-  length           = 16
+  count            = length(var.json_config.service_configuration[*])
+  length           = var.password_length
   override_special = "%^#;_"
 }
 
+# Create our database users looping through the service configuration provided
+# in the config.json file.
 resource "mongodbatlas_database_user" "store_service_user" {
   count              = length(var.json_config.service_configuration)
   username           = var.json_config.service_configuration[count.index].serviceName
@@ -33,6 +37,8 @@ resource "mongodbatlas_database_user" "store_service_user" {
   }
 }
 
+# Generate a local file output (from template) that contains our connection
+# strings, formatted as: mongodb+srv://[username]:[password]@[cluster]/[db]/[collection]
 resource "local_file" "connection_strings" {
   count = length(var.json_config.service_configuration)
   content = templatefile("../../templates/connection_strings.json.tpl", {

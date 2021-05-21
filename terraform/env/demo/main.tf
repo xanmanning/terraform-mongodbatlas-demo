@@ -24,6 +24,7 @@ module "mongodbcluster" {
   project_id   = var.project_id
 }
 
+# Import our MongoDB Users module
 module "mongodbusers" {
   source = "../../modules/mongodbusers"
 
@@ -33,4 +34,5 @@ module "mongodbusers" {
   env_id            = var.env_id
   connection_string = module.mongodbcluster.connection_string
   config_out_dir    = "../../../outputs"
+  password_length   = 16
 }
