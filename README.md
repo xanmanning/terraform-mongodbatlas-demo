@@ -6,6 +6,12 @@ This project is designed to create a MongoDB cluster in Atlas, create and
 manage some specified users and output the connection strings to connect to
 each collection in the MongoDB
 
+## Requirements
+
+ - A [MongoDB Atlas Account](https://www.mongodb.com/cloud/atlas) with the
+   capability to launch M2 clusters (non-free).
+ - Terraform >= 0.15
+
 ## Usage
 
 This code is designed to be run on a POSIX compliant shell with Terraform
@@ -23,7 +29,7 @@ machines.
     a consistent platform from which to run the code.
  1. Run `./go` to see a help prompt and a list of actions.
  1. Run `./go test controller`, this should report as "Controller environment
-    OK" if you're machine is capable of running the code. Remediations will be
+    OK" if your machine is capable of running the code. Remediations will be
     suggested, however in some cases, these can be fixed with
     `./go build controller` and verified by re-running the test. :hand: Note
     that `./go build controller` will just install Terraform and some code
